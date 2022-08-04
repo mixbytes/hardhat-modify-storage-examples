@@ -443,7 +443,7 @@ for (uint256 i = 0; i < maxLength; i++) {
 return activeProviders;
 ```
 
-Luckily we already know the slot of the `_addressesProviders` mapping: it is `slot 1`. We can directly add our 0xDEADBEEF to the `_addressesProviders`:
+Luckily we already know the slot of the `_addressesProviders` mapping: it is `slot 1`. We can directly add our `0xDEADBEEF` to the `_addressesProviders`:
 ```javascript
 const deadBeefSlot = ethers.utils.solidityKeccak256(
   ["uint256", "uint256"],
