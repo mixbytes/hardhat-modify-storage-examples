@@ -359,7 +359,7 @@ Output:
 ]
 ```
 
-So the array has two elements. Now we know that the slot of the `_addressesProvidersList` stores the value `0x02`. Let's read first few slots with to search for the value:
+So the array has two elements. Now we know that the slot of the `_addressesProvidersList` stores the value `0x02`. Let's read the first few slots to find the value:
 ```javascript
 await ethers.provider.getStorageAt(target.address, "0x0")
 await ethers.provider.getStorageAt(target.address, "0x1")
