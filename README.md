@@ -297,7 +297,7 @@ Let's analyze a simple example on how to find, read and modify a private dynamic
 
 First we need to know how an `address` array is stored in Ethereum state:
 1. Visibility modifiers such as `private`, `public` or `internal` do not affect the storage mechanism
-2. For an `address` dynamic array the slot `p` of the variable stores the number of elements. For example if there are two elements in the array then the slot `p` stores 32 bytes with the value `0x02`. 
+2. For an `address` dynamic array the slot `p` of the variable stores the number of elements. For example if there are two elements in the array then the slot `p` stores `0x02`. 
 3. The corresponding two elements are stored consequently starting from `keccak256(p)`. 
 4. Even though `address` type is 20 bytes long - each array element is still stored in a separate 32 byte slot. So the first element of the array would be at the slot `keccak256(p) + 0` and the second element would be at `keccak256(p) + 1`.
 
