@@ -331,7 +331,7 @@ contract LendingPoolAddressesProviderRegistry is ... {
 ```
 
 We want to find the `_addressesProvidersList` slot. First let's check its contents by calling the `getAddressesProvidersList` method. To do that we need to add an `LendingPoolAddressesProviderRegistry` interface to our project:
-```
+```solidity
 interface ILendingPoolAddressesProviderRegistry {
     function getAddressesProvidersList() external view returns (address[] memory);
 
