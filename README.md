@@ -1,18 +1,18 @@
-Modify Ethereum storage on Hardhat’s mainnet fork
+Modify Ethereum storage and code on Hardhat’s mainnet fork
 =================================================
 
-Hardhat has a cool feature to manually set the value of any storage slot with `hardhat_setStorageAt`. This feature is useful for whitehats to demonstrate a working exploit on Ethereum mainnet without causing real damage. The ability to fork mainnet is also useful for developers of integration tests: mocks may not take into account all the features of real contracts in the mainnet.
+Hardhat has a cool feature to manually set the value of any storage slot with `hardhat_setStorageAt` and rewrite code with `hardhat_setCode`. These features are useful for whitehats to demonstrate a working exploit on Ethereum mainnet without causing real damage. The ability to fork mainnet is also useful for developers of integration tests: mocks may not take into account all the features of real contracts in the mainnet.
 
-In this tutorial we'll set up a Hardhat mainnet fork and walk through several examples on how to find and modify storage variables in real contracts on the fork. We'll cover different types of variables including simple integers, packed values, mappings and arrays.
+In this tutorial, we'll set up a Hardhat mainnet fork and walk through several examples of how to find and modify storage variables in real contracts. We'll cover different types of variables including simple integers, packed values, mappings, and arrays. Also, we'll demonstrate the way to rewrite contract code.
 
 
 Set up a mainnet fork
 =====================
 
-First you need to have a Hardhat installed. Check this tutorial on how to install Hardhat and create your first project: 
+First, you need to have a Hardhat installed. Check this tutorial on how to install Hardhat and create your first project: 
 * https://hardhat.org/tutorial/setting-up-the-environment
 
-In short you need to run:
+In short, you need to run:
 ```sh
 mkdir modify-storage-tutorial
 cd modify-storage-tutorial
@@ -21,13 +21,13 @@ npm init -y
 npm install dotenv hardhat @nomiclabs/hardhat-ethers @nomiclabs/hardhat-waffle ethereum-waffle ethers chai
 ```
 
-In simple mode Hardhat simulates a blockchain locally on your PC. In the fork mode it redirects your requests to a server with a snapshot of a real blockchain. Such an API, for example, is provided by [alchemy.com](https://www.alchemyapi.io) and [quicknode.com](https://quicknode.com).
+In simple mode, Hardhat simulates a blockchain locally on your PC. In the fork mode, it redirects your requests to a server with a snapshot of a real blockchain. Such an API, for example, is provided by [alchemy.com](https://www.alchemyapi.io) and [quicknode.com](https://quicknode.com).
 
 You can check their tutorials on how to fork Ethereum mainnet:
 * https://docs.alchemy.com/alchemy/guides/how-to-fork-ethereum-mainnet
 * https://www.quicknode.com/guides/web3-sdks/how-to-fork-ethereum-mainnet-with-hardhat
 
-In this tutorial we'll work with Alchemy API. You must go to https://www.alchemyapi.io, sign up and create a new App in its dashboard. There you will get the API key needed to configure Hardhat. Put it in the `.env` file and don't forget to add the file name to `.gitignore` as this key is a secret:
+In this tutorial, we'll work with Alchemy API. You must go to https://www.alchemyapi.io, sign up and create a new App in its dashboard. There you will get the API key needed to configure Hardhat. Put it in the `.env` file and don't forget to add the file name to `.gitignore` as this key is a secret:
 ```sh
 echo 'ALCHEMY_API_KEY=XXXXXXXXXX' >> .env
 echo '.env' >> .gitignore
@@ -55,7 +55,8 @@ module.exports = {
     compilers: [
       // you can add additional versions for your project
       {
-        version: '0.8.9',
+      {version: '0.8.9',},
+      {version: '0.4.17',} // will be used for setCode example
       },
     ],
   },
@@ -87,9 +88,9 @@ How to modify a single slot variable
 Change Tether USD contract owner address
 ----------------------------------------
 
-[USDT smartcontract](https://etherscan.io/token/0xdac17f958d2ee523a2206206994597c13d831ec7) has a public variable [`address owner`](https://etherscan.io/token/0xdac17f958d2ee523a2206206994597c13d831ec7#readContract). Let's find its slot and change it to our signer address. Once this is done we'll be able to run some privileged methods like increasing the total supply.
+[USDT smart contract](https://etherscan.io/token/0xdac17f958d2ee523a2206206994597c13d831ec7) has a public variable [`address owner`](https://etherscan.io/token/0xdac17f958d2ee523a2206206994597c13d831ec7#readContract). Let's find its slot and change it to our signer address. Once this is done we'll be able to run some privileged methods like increasing the total supply.
 
-First we add an interface to communicate with USDT. The interface depends on IERC20 so we need to install Openzeppelin contracts:
+First, we add an interface to communicate with USDT. The interface depends on IERC20 so we need to install Openzeppelin contracts:
 ```sh
 npm install @openzeppelin/contracts
 ```
@@ -176,6 +177,93 @@ Run the test to see that it is passing:
 npx hardhat test test/MintUSDT.js
 ```
 
+How to change the code of the deployed smart contract
+======================
+
+## Rewrite USDT contract code with a new function added
+
+Hardhat Network allows modifying the bytecode stored at an address with `hardhat_setCode`.
+
+That's how it works:
+
+```sh
+await network.provider.send("hardhat_setCode", [<addressToBeRewritten>, <newBytecode>]);
+```
+
+The only thing we need to receive is the new bytecode. It is possible in a few ways - let's deploy an updated contract and take its bytecode.
+
+USDT tokens are stored on the USDT smart contract - they are lost forever. Let's free USDT smart-contract from USDT tokens on it, with the special function.
+
+Our updated code inherits the original USDT code and adds a new function.
+
+```solidity
+import "./TetherToken.sol";
+
+pragma solidity ^0.4.17;
+
+contract TetherTokenChanged is TetherToken(32297815690525604,'Tether USD','USDT',18) {
+
+    function freeBalance() onlyOwner public {
+        balances[address(this)] = 0;
+    }
+}
+```
+
+We deploy this new smart-contract, and receive its bytecode.
+
+```javascript
+const USDTnew = await ethers.getContractFactory("TetherTokenChanged");
+const usdtWithNewCode = await USDTnew.deploy(); 
+const newUSDTCode = await hre.network.provider.send("eth_getCode", [usdtWithNewCode.address,]);
+```
+
+The whole test is:
+
+```javascript
+const { expect } = require("chai");
+const { ethers } = require("hardhat");
+
+const usdtAddress = "0xdac17f958d2ee523a2206206994597c13d831ec7"
+
+it("NewCode", async function () {
+
+    // We need two files:
+    // - TetherToken.sol - the original USDT
+    // - TetherTokenChanger.sol - the new version with the new function added
+    // 
+    // Goal - to write a new bytecode to the original USDT address
+    //
+    // Step:
+    // 1) deploy new version of USDT
+    // 2) take its bytecode from the chain
+    // 3) use "hardhat_setCode" to set the updated version of bytecode to the original USDT contract
+    // 4) check that new function works
+
+    // get the owner
+    const usdtToGetOwner = await ethers.getContractAt("IUSDT", usdtAddress);
+    const owner = await usdtToGetOwner.getOwner();
+    await hre.network.provider.request({method: "hardhat_impersonateAccount", params: [owner]});
+
+    // change the code
+    const USDTnew = await ethers.getContractFactory("TetherTokenChanged");
+    const usdtWithNewCode = await USDTnew.deploy(); // we deploy a new contract to extract the bytecode further
+    const newUSDTCode = await hre.network.provider.send("eth_getCode", [usdtWithNewCode.address,]); // we take the new Bytecode
+    await network.provider.send("hardhat_setCode", [usdtAddress, newUSDTCode]);
+    const usdtOldWithNewCode = await USDTnew.attach(usdtAddress);
+
+    // test results
+    expect(await usdtOldWithNewCode.balanceOf(usdtAddress)).to.not.be.eq(0); // usdt has its balance
+    await usdtOldWithNewCode.connect(await ethers.getSigner(owner))['freeBalance()'](); // run new function
+    expect(await usdtOldWithNewCode.balanceOf(usdtAddress)).to.be.eq(0); // check that usdt contract has its balance empty
+
+})
+```
+
+Run the test to see that it is passing:
+
+```sh
+npx hardhat test test/NewCode.js
+```
 
 How to modify a mapping
 =======================
@@ -188,9 +276,9 @@ Now let's change a user balance in [USDC smartcontract](https://etherscan.io/tok
 
 User balances are stored in a `mapping(address => uint) balanceOf` variable.
 
-We can edit the balance directly via `hardhat_setStorageAt` but first we need to find the correct slot. It is a bit tricky. You can check how mappings are stored in Ethereum storage in https://docs.soliditylang.org/en/latest/internals/layout_in_storage.html#mappings-and-dynamic-arrays
+We can edit the balance directly via `hardhat_setStorageAt`. But first, we need to find the correct slot. It is a bit tricky. You can check how mappings are stored in Ethereum storage at https://docs.soliditylang.org/en/latest/internals/layout_in_storage.html#mappings-and-dynamic-arrays
 
-Basically the user balance is stored at the slot:
+Basically, the user balance is stored at the slot:
 ```
 keccak256(padZeros(userAddress) . mappingSlot)
 ```
@@ -295,11 +383,11 @@ Modify Aave LendingPoolAddressesProviderRegistry
 
 Let's analyze a simple example on how to find, read and modify a private dynamic `address` array in Aave's [LendingPoolAddressesProviderRegistry](https://docs.aave.com/developers/v/2.0/the-core-protocol/addresses-provider-registry) which is stored at [0x52D306e36E3B6B02c153d0266ff0f85d18BCD413](https://etherscan.io/address/0x52D306e36E3B6B02c153d0266ff0f85d18BCD413#code).
 
-First we need to know how an `address` array is stored in Ethereum state:
-1. Visibility modifiers such as `private`, `public` or `internal` do not affect the storage mechanism
-2. For an `address` dynamic array the slot `p` of the variable stores the number of elements. For example if there are two elements in the array then the slot `p` stores `0x02`. 
+First, we need to know how an `address` array is stored in Ethereum state:
+1. Visibility modifiers such as `private`, `public`, or `internal` do not affect the storage mechanism
+2. For an `address` dynamic array the slot `p` of the variable stores the number of elements. For example, if there are two elements in the array then the slot `p` stores `0x02`. 
 3. The corresponding two elements are stored consequently starting from `keccak256(p)`. 
-4. Even though `address` type is 20 bytes long - each array element is still stored in a separate 32 byte slot. So the first element of the array would be at the slot `keccak256(p) + 0` and the second element would be at `keccak256(p) + 1`.
+4. Even though the `address` type is 20 bytes long - each array element is still stored in a separate 32 byte slot. So the first element of the array would be at the slot `keccak256(p) + 0` and the second element would be at `keccak256(p) + 1`.
 
 If you are interested in how other types of arrays are stored read the https://docs.soliditylang.org/en/latest/internals/layout_in_storage.html#mappings-and-dynamic-arrays
 
@@ -330,7 +418,7 @@ contract LendingPoolAddressesProviderRegistry is ... {
   ...
 ```
 
-We want to find the `_addressesProvidersList` slot. First let's check its contents by calling the `getAddressesProvidersList` method. To do that we need to add an `LendingPoolAddressesProviderRegistry` interface to our project:
+We want to find the `_addressesProvidersList` slot. First, let's check its contents by calling the `getAddressesProvidersList` method. To do that we need to add an `LendingPoolAddressesProviderRegistry` interface to our project:
 ```solidity
 interface ILendingPoolAddressesProviderRegistry {
     function getAddressesProvidersList() external view returns (address[] memory);
@@ -375,10 +463,10 @@ Output:
 
 Let's analyze the storage layout:
 * `slot 0` is used by some variable outside of our scope. 
-* `slot 1` is seem to be used by the mapping `_addressesProviders` since the mapping slot doesn't store elements and it is always zero. 
+* `slot 1` seems to be used by the mapping `_addressesProviders` since the mapping slot doesn't store elements and it is always zero. 
 * `slot 2` stores `0x02` and is seem to be the slot for the `_addressesProvidersList`!
 
-Let't change `slot 2` value to `0x03` so the array `_addressesProvidersList` would have 3 elements:
+Let's change `slot 2` value to `0x03` so the array `_addressesProvidersList` would have 3 elements:
 ```javascript
 await ethers.provider.send(
   "hardhat_setStorageAt", [
@@ -484,9 +572,14 @@ npx hardhat run scripts/ChangeAaveAddressProviderList.js
 Сonclusion
 ==========
 
-In this article, we have analyzed several examples of how to find slots for different types of variables in Ethereum state, how to read and modify their values. We looked at how to modify `public address`, `public mapping(address => uint)` and `private address[]` in such contracts as USDT, USDC and Aave. 
+In this article:
 
-This tricks will definitely help you in preparing and demonstrating working exploits. And if you're not a whitehat but a developer then this will definitely help you in writing integration tests. 
+1) we have analyzed several examples of how to find slots for different types of variables in Ethereum state
+2) we managed to read and modify their values
+3) we demonstrated modifying `public address`, `public mapping(address => uint)` and `private address[]` in such contracts as USDT, USDC and Aave
+4) we changed the code of the already deployed contract
+
+These tricks will definitely help you in preparing and demonstrating working exploits. And if you're not a whitehat but a developer then this will definitely help you in writing integration tests. 
 
 Good luck!
 
@@ -499,6 +592,7 @@ Links
 * [Euler: Brute Force Storage Layout Discovery in ERC20 Contracts With Hardhat](https://blog.euler.finance/brute-force-storage-layout-discovery-in-erc20-contracts-with-hardhat-7ff9342143ed)
 * [Hardhat: Setting up the environment](https://hardhat.org/tutorial/setting-up-the-environment)
 * [Hardhat: Forking other networks](https://hardhat.org/hardhat-network/docs/guides/forking-other-networks)
+* [Hardhat: Helpers](https://hardhat.org/hardhat-network-helpers/docs/reference)
 * [Alchemy: How to Fork Ethereum Mainnet](https://docs.alchemy.com/alchemy/guides/how-to-fork-ethereum-mainnet)
 * [Quicknode: How To Fork Ethereum Mainnet with Hardhat](https://www.quicknode.com/guides/web3-sdks/how-to-fork-ethereum-mainnet-with-hardhat)
 * [&laquo;Not able to set storage slot on hardhat network&raquo;](https://ethereum.stackexchange.com/questions/129645/not-able-to-set-storage-slot-on-hardhat-network)

@@ -17,9 +17,8 @@ module.exports = {
   solidity: {
     compilers: [
       // you can add additional versions for your project
-      {
-        version: '0.8.9',
-      },
+      {version: '0.8.9',},
+      {version: '0.4.17',}
     ],
   },
   defaultNetwork: "hardhat",
